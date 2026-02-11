@@ -1,0 +1,81 @@
+version: "3.7"
+services:
+  agent:
+    image: portainer/agent:2.33.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - "TZ=America/Sao_Paulo"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+
+    networks:
+      - agent_network
+
+    deploy:
+      mode: global
+      placement:
+        constraints: [ node.platform.os == linux ]
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+      labels:
+        - "traefik.enable=false"
+
+  portainer:
+    image: portainer/portainer-ce:2.33.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: -H tcp://tasks.agent:9001 --tlsskipverify
+    ports:
+      - "9443:9443"
+
+    volumes:
+      - portainer_data:/data
+
+    networks:
+      - traefik_public
+      - agent_network
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [ node.role == manager ]
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer.rule=Host(`portainer.${CLUSTER_DOMAIN}`)"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+        - "traefik.http.routers.portainer.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.portainer.service=portainer"
+        - "traefik.swarm.network=traefik_public"
+        - "traefik.http.routers.portainer.entrypoints=websecure"
+        - "traefik.http.routers.portainer.priority=1"
+
+networks:
+  agent_network:
+  traefik_public:
+    external: true
+    attachable: true
+    name: traefik_public
+
+volumes:
+  portainer_data:
+    name: portainer_data
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/storage-pool/portainer

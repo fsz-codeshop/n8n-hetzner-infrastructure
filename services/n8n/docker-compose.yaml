@@ -1,0 +1,209 @@
+version: "3.8"
+
+services:
+  primary:
+    image: n8nio/n8n:2.4.8
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: start
+    networks:
+      - traefik_public
+      - internal_network
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      ## 🗄️ Database (PostgreSQL)
+      - N8N_FIX_MIGRATIONS=true
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=n8n_queue
+      - DB_POSTGRESDB_HOST=tools-db_postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
+      ## 🔐 Encryption
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      ## 🌐 URLs & Access
+      - N8N_HOST=${N8N_EDITOR_URL}
+      - N8N_EDITOR_BASE_URL=https://${N8N_EDITOR_URL}/
+      - WEBHOOK_URL=https://${N8N_EDITOR_URL}/
+      - N8N_PROTOCOL=https
+      - N8N_ONBOARDING_FLOW_DISABLED=true
+      - N8N_PROXY_HOPS=1
+
+      ## ⚙️ Runtime
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max_old_space_size=1024
+      - EXECUTIONS_MODE=queue
+      - EXECUTIONS_TIMEOUT=3600
+      - EXECUTIONS_TIMEOUT_MAX=7200
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_RUNNERS_MODE=internal
+      - N8N_RUNNERS_MAX_CONCURRENCY=5
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - EXTERNAL_FRONTEND_HOOKS_URLS=
+      - N8N_FORMDATA_FILE_SIZE_MAX=25
+
+      ## 📦 Community Nodes & Packages
+      - N8N_REINSTALL_MISSING_PACKAGES=false
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_NODE_PATH=/home/node/.n8n/nodes
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      ## 📧 SMTP
+      - N8N_SMTP_SENDER=${SMTP_SENDER}
+      - N8N_SMTP_USER=${SMTP_USER}
+      - N8N_SMTP_PASS=${SMTP_PASSWORD}
+      - N8N_SMTP_HOST=${SMTP_HOST}
+      - N8N_SMTP_PORT=${SMTP_PORT}
+      - N8N_SMTP_SSL=${SMTP_SSL:-false}
+
+      ## 🔁 Redis Queue
+      - QUEUE_BULL_REDIS_HOST=n8n_redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - QUEUE_BULL_REDIS_DB=1
+      - QUEUE_BULL_REDIS_DUALSTACK=true
+
+      ## 📊 Metrics
+      - N8N_METRICS=true
+
+      ## ⏱️ Data Pruning
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336 # in hours ~14d
+
+      ## 🧠 AI (optional)
+      - N8N_AI_ENABLED=false
+      - N8N_AI_PROVIDER=openai
+      - N8N_AI_OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      ## 🧰 Custom Functions Permissions
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
+
+      ## ⏰ Timezone & Locale
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+      - N8N_DEFAULT_LOCALE=en-US
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.role == n8n-server
+      resources:
+        limits:
+          cpus: "0.8"
+          memory: 1536M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.n8n.rule=Host(`${N8N_EDITOR_URL}`)
+        - traefik.http.routers.n8n.entrypoints=websecure
+        - traefik.http.routers.n8n.tls.certresolver=letsencryptresolver
+        #- traefik.http.routers.n8n.service=n8n
+        - traefik.http.services.n8n.loadbalancer.server.port=5678
+        - traefik.swarm.network=traefik_public
+
+  worker:
+    image: n8nio/n8n:2.4.8
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: worker --concurrency=10
+    networks:
+      - internal_network
+    volumes:
+      - /mnt/storage-pool/n8n/nodes:/home/node/.n8n/nodes:ro
+    environment:
+      - TZ=America/Sao_Paulo
+      - NODE_ENV=production
+      - EXECUTIONS_MODE=queue
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_RUNNERS_ENABLED=true
+      - NODE_OPTIONS=--max_old_space_size=768
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+      - WEBHOOK_URL=https://${N8N_EDITOR_URL}/
+      ## 🗄️ Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=n8n_queue
+      - DB_POSTGRESDB_HOST=tools-db_postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      ## 🔐 Encryption
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      ## 🔁 Redis
+      - QUEUE_BULL_REDIS_HOST=n8n_redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - QUEUE_BULL_REDIS_DB=1
+      - QUEUE_BULL_REDIS_DUALSTACK=true
+      ## External Binary Data (Requires Enterprise License)
+      - N8N_FORMDATA_FILE_SIZE_MAX=25
+      # - N8N_AVAILABLE_BINARY_DATA_MODES=filesystem,s3
+      # - N8N_DEFAULT_BINARY_DATA_MODE=${N8N_DEFAULT_BINARY_DATA_MODE}
+      # - N8N_EXTERNAL_STORAGE_S3_HOST=${N8N_EXTERNAL_STORAGE_S3_HOST}
+      # - N8N_EXTERNAL_STORAGE_S3_BUCKET_NAME=${N8N_EXTERNAL_STORAGE_S3_BUCKET_NAME}
+      # - N8N_EXTERNAL_STORAGE_S3_BUCKET_REGION=${N8N_EXTERNAL_STORAGE_S3_BUCKET_REGION}
+      # - N8N_EXTERNAL_STORAGE_S3_ACCESS_KEY=${N8N_EXTERNAL_STORAGE_S3_ACCESS_KEY}
+      # - N8N_EXTERNAL_STORAGE_S3_ACCESS_SECRET=${N8N_EXTERNAL_STORAGE_S3_ACCESS_SECRET}
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.role == n8n-server
+      resources:
+        limits:
+          cpus: "0.8"
+          memory: 1280M
+      labels:
+        - traefik.enable=false
+
+  redis:
+    image: redis:7.2-alpine
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: [ "redis-server", "--appendonly", "yes", "--port", "6379", "--requirepass", "${REDIS_PASSWORD}" ]
+    environment:
+      - TZ=America/Sao_Paulo
+    volumes:
+      - redis:/data
+    networks:
+      - internal_network
+    deploy:
+      placement:
+        constraints:
+          - node.labels.role == data
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 512M
+      labels:
+        - traefik.enable=false
+
+volumes:
+  redis:
+  n8n_data:
+    name: n8n_data
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/storage-pool/n8n
+
+networks:
+  traefik_public:
+    external: true
+  internal_network:
+    external: true

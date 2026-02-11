@@ -1,0 +1,257 @@
+#cloud-config
+# Unified Cloud-Init for Docker Swarm Cluster
+# Role: ${node_role}
+hostname: ${hostname}
+fqdn: ${hostname}.local
+
+# Configure /etc/hosts with all nodes
+manage_etc_hosts: true
+
+# SSH Authorization
+ssh_authorized_keys:
+  - ${cluster_public_key}
+
+write_files:
+%{ if node_role == "manager" ~}
+  # Internal Cluster Key (Private) - Required for Manager orchestration
+  - path: /root/.ssh/id_ed25519
+    permissions: '0600'
+    encoding: b64
+    content: ${base64_cluster_private_key}
+  
+  # Public Key
+  - path: /root/.ssh/id_ed25519.pub
+    permissions: '0644'
+    content: ${cluster_public_key}
+  
+  # SSH Config
+  - path: /root/.ssh/config
+    permissions: '0600'
+    content: |
+      Host *
+        IdentityFile /root/.ssh/id_ed25519
+        StrictHostKeyChecking no
+%{ endif ~}
+
+  # Override default hosts template for persistence
+  - path: /etc/cloud/templates/hosts.debian.tmpl
+    content: |
+      127.0.0.1 localhost
+      127.0.1.1 ${hostname}.local ${hostname}
+      
+      # IPv6
+      ::1 localhost ip6-localhost ip6-loopback
+      ff02::1 ip6-allnodes
+      ff02::2 ip6-allrouters
+      
+      # ============================================
+      # Docker Swarm Cluster - Internal Network
+      # ============================================
+      
+      # Manager Nodes (10.0.1.10-14)
+      10.0.1.10 eu-manager-01
+      10.0.1.11 eu-manager-02
+      10.0.1.12 eu-manager-03
+      10.0.1.13 eu-manager-04
+      10.0.1.14 eu-manager-05
+      
+      # Data Nodes (10.0.1.20-24)
+      10.0.1.20 eu-data-01
+      10.0.1.21 eu-data-02
+      10.0.1.22 eu-data-03
+      10.0.1.23 eu-data-04
+      10.0.1.24 eu-data-05
+      
+      # Worker Nodes (10.0.1.30-34)
+      10.0.1.30 eu-worker-01
+      10.0.1.31 eu-worker-02
+      10.0.1.32 eu-worker-03
+      10.0.1.33 eu-worker-04
+      10.0.1.34 eu-worker-05
+    permissions: '0644'
+
+  # System limits configuration for containers
+  - path: /etc/sysctl.d/99-docker.conf
+    content: |
+      # Increase inotify limits for Docker containers
+      fs.inotify.max_user_instances = 524288
+      fs.inotify.max_user_watches = 524288
+      fs.file-max = 2097152
+      # Network optimizations
+      net.core.somaxconn = 1024
+      net.ipv4.tcp_max_syn_backlog = 2048
+      # Allow more connections
+      net.ipv4.ip_local_port_range = 1024 65535
+
+  # SSH hardening configuration
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      # Disable password authentication for root (keys only allowed)
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      PermitEmptyPasswords no
+      X11Forwarding no
+      MaxAuthTries 3
+      AllowTcpForwarding no
+      StrictModes yes
+
+%{ if node_role == "manager" ~}
+  # Portainer Stack Definition
+  - path: /root/portainer-stack.yml
+    encoding: b64
+    content: ${base64_portainer_stack}
+
+  # Traefik Stack Definition
+  - path: /root/traefik-stack.yml
+    encoding: b64
+    content: ${base64_traefik_stack}
+
+  # Traefik Env Variables
+  - path: /root/.traefik.env
+    permissions: '0600'
+    content: |
+      CLOUDFLARE_DNS_API_TOKEN="${cloudflare_token}"
+      CLOUDFLARE_EMAIL="${cloudflare_email}"
+      TRAEFIK_WEB_PASSWORD="${traefik_password}"
+      CLUSTER_DOMAIN="${cluster_domain}"
+      PORTAINER_PASSWORD="${portainer_password}"
+    
+  # Labeling Script
+  - path: /usr/local/bin/swarm-label-node.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${base64_label_script}
+%{ endif ~}
+
+  # Node Setup Script (Init/Join Swarm)
+  - path: /usr/local/bin/cluster-node-setup.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${base64_node_script}
+
+  # Systemd Service for Node Setup
+  - path: /etc/systemd/system/cluster-node-setup.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Docker Swarm Cluster Node Setup (${node_role})
+      After=docker.service network-online.target%{ if node_role == "data" } glusterd.service%{ endif }
+      Wants=docker.service network-online.target%{ if node_role == "data" } glusterd.service%{ endif }
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/cluster-node-setup.sh
+      RemainAfterExit=yes
+      TimeoutStartSec=1800
+      
+      [Install]
+      WantedBy=multi-user.target
+
+# Package Management
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - apache2-utils
+  - wget
+  - vim
+  - git
+  - htop
+  - jq
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+%{ if node_role == "data" ~}
+  - glusterfs-server
+%{ else ~}
+  - glusterfs-client
+%{ endif ~}
+
+# Docker Repository
+apt:
+  sources:
+    docker:
+      source: "deb [arch=amd64] https://download.docker.com/linux/ubuntu $RELEASE stable"
+      keyid: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+
+timezone: America/Sao_Paulo
+
+runcmd:
+  # ============================================
+  # System Configuration
+  # ============================================
+  
+  # Disable swap
+  - swapoff -a
+  - sed -i '/swap/d' /etc/fstab
+  
+  # Apply limits and restart SSH
+  - sysctl -p /etc/sysctl.d/99-docker.conf
+  - systemctl restart ssh
+  
+  # ============================================
+  # Docker & Gluster Configuration
+  # ============================================
+  
+  - systemctl enable docker
+  - systemctl start docker
+%{ if node_role == "data" ~}
+  - systemctl enable glusterd
+  - systemctl start glusterd
+%{ endif ~}
+  - echo "Global services configured." >> /var/log/cloud-init-complete.log
+  
+%{ if node_role == "data" ~}
+  # ============================================
+  # Data Node: Volumes & Gluster Brick Setup
+  # ============================================
+  - sleep 10
+  - |
+    # Find Hetzner volumes and setup Mounts
+    VOLUMES=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | sort || true)
+    if [ ! -z "$VOLUMES" ]; then
+      i=0
+      for vol in $VOLUMES; do
+        if [ $i -eq 0 ]; then
+          # Postgres Volume
+          if ! blkid "$vol"; then mkfs.ext4 -F "$vol"; fi
+          mkdir -p /mnt/postgres-data
+          echo "$vol /mnt/postgres-data ext4 defaults,nofail 0 2" >> /etc/fstab
+          mount /mnt/postgres-data
+          mkdir -p /mnt/postgres-data/pgdata
+          chown -R 999:999 /mnt/postgres-data/pgdata
+        elif [ $i -eq 1 ]; then
+          # Shared Volume (Gluster)
+          if ! blkid "$vol"; then mkfs.ext4 -F "$vol"; fi
+          mkdir -p /mnt/storage-pool
+          echo "$vol /mnt/storage-pool ext4 defaults,nofail 0 2" >> /etc/fstab
+          mount /mnt/storage-pool
+          
+          # Init Gluster Volume
+          if ! gluster volume info storage-pool; then
+            gluster volume create storage-pool eu-data-01:/mnt/storage-pool force
+            gluster volume start storage-pool
+            gluster volume set storage-pool auth.allow 10.0.1.*
+          fi
+        fi
+        i=$((i+1))
+      done
+    fi
+%{ endif ~}
+
+  # ============================================
+  # Enable Cluster Services
+  # ============================================
+  - systemctl enable cluster-node-setup.service
+  - systemctl start cluster-node-setup.service --no-block
+
+  # ============================================
+  # Completion Marker
+  # ============================================
+  - 'echo "=== Cloud-init finished at $(date) (Role: ${node_role}) ===" >> /var/log/cloud-init-complete.log'
+
+locale: en_US.UTF-8
+final_message: "Node ${hostname} (${node_role}) is ready after $UPTIME seconds."
