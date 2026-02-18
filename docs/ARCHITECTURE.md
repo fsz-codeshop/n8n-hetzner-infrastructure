@@ -15,7 +15,7 @@ Infrastructure as Code (IaC) for deploying n8n on Hetzner Cloud using:
 ### System Context
 ```mermaid
 flowchart TD
-    User(({User/Dev}))
+    User(["User / Dev"])
     
     subgraph External["External Control Plane"]
         CF["Cloudflare (DNS/TLS/ZTNA)"]
@@ -24,7 +24,7 @@ flowchart TD
     
     subgraph Hetzner["Hetzner Cloud"]
         FW["Hetzner Firewall"]
-        Vol[{(Hetzner Volumes)}]
+        Vol[("(Hetzner Volumes)")]
         
         subgraph Swarm["Docker Swarm Cluster"]
             Traefik["Traefik Edge Proxy"]
@@ -109,7 +109,7 @@ We use a hybrid storage model combining local block storage and shared GlusterFS
 ### System Context
 ```mermaid
 flowchart TD
-    User(({User/Dev}))
+    User(["User / Dev"])
     
     subgraph External["External Control Plane"]
         CF["Cloudflare (DNS/TLS/ZTNA)"]
@@ -118,7 +118,7 @@ flowchart TD
     
     subgraph Hetzner["Hetzner Cloud"]
         FW["Hetzner Firewall"]
-        Vol[{(Hetzner Volumes)}]
+        Vol[("(Hetzner Volumes)")]
         
         subgraph Swarm["Docker Swarm Cluster"]
             Traefik["Traefik Edge Proxy"]
