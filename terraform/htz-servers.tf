@@ -61,8 +61,8 @@ resource "hcloud_server" "eu_manager_01" {
   # Protection
   keep_disk          = true
   backups            = false
-  delete_protection  = false
-  rebuild_protection = false
+  delete_protection  = true
+  rebuild_protection = true
 
   depends_on = [
     hcloud_network_subnet.network_1_subnet,
@@ -125,8 +125,8 @@ resource "hcloud_server" "eu_data_01" {
   # Protection
   keep_disk          = true
   backups            = false
-  delete_protection  = false
-  rebuild_protection = false
+  delete_protection  = true
+  rebuild_protection = true
 
   depends_on = [
     hcloud_network_subnet.network_1_subnet

@@ -1,15 +1,6 @@
-locals {
-  n8n_postgres_user = "n8n_user"
-}
-
 # ============================================
 # Password Generation
 # ============================================
-
-resource "random_password" "portainer_password" {
-  length  = 32
-  special = false
-}
 
 resource "random_password" "postgres_admin_password" {
   length  = 32
@@ -35,14 +26,6 @@ resource "random_password" "n8n_encryption_key" {
 # Infisical Secrets (Managed by Terraform)
 # ============================================
 
-resource "infisical_secret" "portainer_admin_password" {
-  name         = "PORTAINER_ADMIN_PASSWORD"
-  value        = random_password.portainer_password.result
-  env_slug     = var.infisical_environment
-  workspace_id = var.infisical_project_id
-  folder_path  = "/"
-}
-
 resource "infisical_secret" "tools_db_postgres_admin_user" {
   name         = "TOOLS_DB_POSTGRES_ADMIN_USER"
   value        = "postgres"
@@ -50,6 +33,7 @@ resource "infisical_secret" "tools_db_postgres_admin_user" {
   workspace_id = var.infisical_project_id
   folder_path  = "/"
 }
+
 resource "infisical_secret" "tools_db_postgres_admin_password" {
   name         = "TOOLS_DB_POSTGRES_ADMIN_PASSWORD"
   value        = random_password.postgres_admin_password.result
@@ -65,6 +49,7 @@ resource "infisical_secret" "tools_db_postgres_n8n_user" {
   workspace_id = var.infisical_project_id
   folder_path  = "/n8n"
 }
+
 resource "infisical_secret" "tools_db_postgres_n8n_password" {
   name         = "TOOLS_DB_POSTGRES_N8N_PASSWORD"
   value        = random_password.postgres_n8n_password.result
@@ -90,24 +75,20 @@ resource "infisical_secret" "n8n_encryption_key" {
 }
 
 # ============================================
-# Portainer Stacks Configuration
-# ============================================
-
-# ============================================
 # Database Initialization Scripts
 # ============================================
 
 resource "null_resource" "tools_db_init_script" {
   # Trigger update if the script file changes
   triggers = {
-    script_content = file("${path.module}/../services/tools_db/n8n-init-db.sh")
+    script_content = file("${path.module}/../../services/tools_db/n8n-init-db.sh")
   }
 
   connection {
     type        = "ssh"
     user        = "root"
-    private_key = file("${path.module}/../ssh-keys/admin-key.pem")
-    host        = hcloud_server.eu_manager_01.ipv4_address
+    private_key = data.terraform_remote_state.core.outputs.ssh_key_location != "" ? file(data.terraform_remote_state.core.outputs.ssh_key_location) : "dummy"
+    host        = data.terraform_remote_state.core.outputs.manager_ipv4
   }
 
   provisioner "remote-exec" {
@@ -124,14 +105,11 @@ resource "null_resource" "tools_db_init_script" {
 # ============================================
 
 resource "portainer_stack" "tools_db" {
-  # Ensure the init script is injected before the stack starts
-  depends_on = [null_resource.tools_db_init_script]
-
   name            = "tools-db"
   endpoint_id     = var.portainer_endpoint_id
   deployment_type = "swarm"
   method          = "file"
-  stack_file_path = "${path.module}/../services/tools_db/docker-compose.yaml"
+  stack_file_path = "${path.module}/../../services/tools_db/docker-compose.yaml"
 
   env {
     name  = "POSTGRES_ADMIN_USER"
@@ -150,10 +128,7 @@ resource "portainer_stack" "tools_db" {
     value = random_password.postgres_n8n_password.result
   }
 
-  env {
-    name  = "POSTGRES_N8N_PASSWORD"
-    value = random_password.postgres_n8n_password.result
-  }
+  depends_on = [null_resource.tools_db_init_script]
 }
 
 # ============================================
@@ -165,7 +140,7 @@ resource "portainer_stack" "n8n" {
   endpoint_id     = var.portainer_endpoint_id
   deployment_type = "swarm"
   method          = "file"
-  stack_file_path = "${path.module}/../services/n8n/docker-compose.yaml"
+  stack_file_path = "${path.module}/../../services/n8n/docker-compose.yaml"
 
   env {
     name  = "POSTGRES_USER"
@@ -209,11 +184,5 @@ resource "portainer_stack" "n8n" {
     value = "587"
   }
 
-  env {
-    name  = "SMTP_PORT"
-    value = "587"
-  }
-
-  # Ensure DB is up before n8n
   depends_on = [portainer_stack.tools_db]
 }

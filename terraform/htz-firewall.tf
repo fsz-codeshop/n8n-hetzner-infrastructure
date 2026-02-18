@@ -24,14 +24,14 @@ resource "hcloud_firewall" "cluster_firewall" {
     description = "SSH - Admin Access"
   }
 
-  # Portainer API - Direct Access (Admin Only)
-  rule {
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "9443"
-    source_ips  = local.admin_ips
-    description = "Portainer API - Direct Access"
-  }
+  # Portainer API - Direct Access (Admin Only) - Moved to Traefik
+  # rule {
+  #   direction   = "in"
+  #   protocol    = "tcp"
+  #   port        = "9443"
+  #   source_ips  = local.admin_ips
+  #   description = "Portainer API - Direct Access"
+  # }
 
   # PING - ALL
   rule {

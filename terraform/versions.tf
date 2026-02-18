@@ -30,10 +30,6 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.11"
     }
-    portainer = {
-      source  = "portainer/portainer"
-      version = "~> 1.24"
-    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"

@@ -179,19 +179,22 @@ stateDiagram-v2
     [*] --> SetupEnv
     SetupEnv --> TerraformApply
     
-    state "Terraform Provisioning" as TerraformApply {
-        [*] --> CreateVMs
-        CreateVMs --> CloudInit
+    state "Deployment Pipeline" as TerraformApply {
+        state "Terraform Core" as Core {
+            [*] --> ProvisionNodes
+            ProvisionNodes --> CloudInit
+        }
+        state "Terraform Stacks" as Stacks {
+            [*] --> DeployServices
+            DeployServices --> PortainerAPI
+        }
+        Core --> Stacks
     }
     
-    state "Server Side (Cloud-Init)" as CloudInit {
+    state "Node Setup" as CloudInit {
         [*] --> InstallDocker
-        InstallDocker --> RunInitScript
-        
-        state "init-swarm.sh" as RunInitScript {
-            SwarmInit --> CreateNetworks
-            CreateNetworks --> DeployStacks
-        }
+        InstallDocker --> InitSwarm
+        InitSwarm --> [*]
     }
 ```
 

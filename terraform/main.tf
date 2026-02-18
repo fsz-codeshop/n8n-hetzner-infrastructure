@@ -29,19 +29,6 @@ provider "cloudflare" {
 # Portainer Provider Configuration
 # ============================================
 
-provider "portainer" {
-  # Temporary direct IP to bypass Cloudflare Access issue with resources
-  endpoint        = "https://${hcloud_server.eu_manager_01.ipv4_address}:9443"
-  api_user        = "admin"
-  api_password    = random_password.portainer_password.result
-  skip_ssl_verify = true
-
-  # Custom headers - Disabled for direct access
-  # custom_headers = {
-  #   "CF-Access-Client-Id"     = cloudflare_zero_trust_access_service_token.terraform_portainer.client_id
-  #   "CF-Access-Client-Secret" = cloudflare_zero_trust_access_service_token.terraform_portainer.client_secret
-  # }
-}
 
 
 # ============================================

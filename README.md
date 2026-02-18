@@ -123,6 +123,11 @@ Terraform fetches secrets using the following folder structure. Ensure these exi
   - `UMBLER_SMTP_PASSWORD`: SMTP password.
 
 ### 3. Deploy
+
+The infrastructure is split into two layers to ensure stability and avoid circular dependencies:
+
+#### Layer 1: Core Infrastructure
+Provision servers, networking, and firewalls.
 ```bash
 cd terraform
 # Load .env (includes Infisical Client Secret)
@@ -132,13 +137,27 @@ terraform init
 terraform apply
 ```
 
+#### Layer 2: Application Stacks
+Deploy n8n, databases, and proxies once the cluster is ready.
+```bash
+cd terraform/stacks
+# Load .env
+export $(grep -v '^#' ../../.env | xargs)
+
+terraform init
+terraform apply
+```
+
+> **Rationale**: We decouple **Core Infrastructure** from **Stacks** to ensure that cluster-level changes (like firewall rules or new nodes) don't interfere with the active deployment of services via the Portainer API. This also allows for independent state management.
+
 ---
 
 ## 🏗️ Project Structure
 ```text
 .
 ├── docs/               # 📋 Documentation (Design/Security) & DEPLOYMENT (Ops)
-├── terraform/          # 🏗️ IaC: Network, Firewalls, Nodes, and Stack Automation
+├── terraform/          # 🏗️ Core IaC: Network, Servers, Firewalls
+│   └── stacks/         # 🐋 Stack Orchestration: n8n, DBs, and Portainer Apps
 ├── services/           # 🐋 Docker Swarm Stack Definitions (Compose files)
 ├── scripts/            # 🔧 Utility scripts for bootstrapping and maintenance
 ├── ssh-keys/           # 🔑 Generated SSH keys (Gitignored)

@@ -59,7 +59,10 @@ output "ssh_key_location" {
   value       = abspath("${path.root}/../ssh-keys/admin-key.pem")
 }
 
-output "private_key_warning" {
-  description = "Warning about private key storage"
-  value       = "⚠️  Private SSH key is stored in ../ssh-keys/admin-key.pem (chmod 600) and in terraform state. Backup securely!"
+# ============================================
+# Core Integration Outputs (for stacks/)
+# ============================================
+
+output "manager_ipv4" {
+  value = hcloud_server.eu_manager_01.ipv4_address
 }
